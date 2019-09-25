@@ -8,8 +8,10 @@ package mom
 
 import (
 	"github.com/btnguyen2k/prom"
+	"log"
 	"main/src/goems"
 	"main/src/itineris"
+	"main/src/utils"
 	"os"
 	"runtime"
 	"strconv"
@@ -28,10 +30,12 @@ type MyBootstrapper struct {
 
 var (
 	Bootstrapper = &MyBootstrapper{name: "mom"}
-	mongoConnect *prom.MongoConnect
-	daoMappings  IDaoMoMapping
-	daoApp       IDaoApp
-	startupTime  = time.Now()
+
+	mongoConnect        *prom.MongoConnect
+	daoMappings         IDaoMoMapping
+	daoApp              IDaoApp
+	startupTime         = time.Now()
+	arbitraryTargetMode bool
 )
 
 /*
@@ -42,9 +46,12 @@ Bootstrapper usually does:
 - other initializing work (e.g. creating DAO, initializing database, etc)
 */
 func (b *MyBootstrapper) Bootstrap() error {
+	arbitraryTargetMode = goems.AppConfig.GetBoolean("mom.arbitrary_target_mode", false)
+
 	initFilters()
 	initDaos()
 	initApiHandlers(goems.ApiRouter)
+
 	return nil
 }
 
@@ -60,8 +67,9 @@ func initFilters() {
 	// - Request logger should be the last one to capture full request/response
 	apiFilter = itineris.NewAddPerfInfoFilter(goems.ApiRouter, apiFilter)
 	apiFilter = itineris.NewLoggingFilter(goems.ApiRouter, apiFilter, itineris.NewWriterPerfLogger(os.Stderr, appName, appVersion))
-	// apiFilter = itineris.NewAuthenticationFilter(goems.ApiRouter, apiFilter, NewDummyApiAuthenticator())
+	apiFilter = itineris.NewAuthenticationFilter(goems.ApiRouter, apiFilter, NewMomApiAuthenticator())
 	apiFilter = itineris.NewLoggingFilter(goems.ApiRouter, apiFilter, itineris.NewWriterRequestLogger(os.Stdout, appName, appVersion))
+	goems.ApiRouter.SetApiFilter(apiFilter)
 }
 
 func initDaos() {
@@ -77,6 +85,24 @@ func initDaos() {
 		daoApp = NewMongodbDaoApp(mongoConnect, collectionApps)
 		daoMappings = NewMongodbDaoMoMapping(mongoConnect, baseCollectionMom)
 
+		appSystem = goems.AppConfig.GetString("mom.system_app_name", "system")
+		app, err := daoApp.Get(appSystem)
+		if err != nil {
+			panic(err)
+		}
+		if app == nil {
+			log.Printf("Creating system app...")
+			secret := goems.AppConfig.GetString("mom.system_app_secret", appSystem)
+			app = &BoApp{
+				Id:     appSystem,
+				Secret: utils.Sha1SumStr(appSystem + "." + secret),
+				Time:   time.Now(),
+				Config: nil,
+			}
+		}
+		if _, err := daoApp.Create(app); err != nil {
+			panic(err)
+		}
 		return
 	}
 	panic("Unknown database type: [" + dbtype + "].")
@@ -95,6 +121,9 @@ func initApiHandlers(router *itineris.ApiRouter) {
 	router.SetHandler("getApp", apiGetApp)
 	router.SetHandler("updateApp", apiUpdateApp)
 	router.SetHandler("deleteApp", apiDeleteApp)
+
+	router.SetHandler("getMappingForObject", apiGetMappingForObject)
+	router.SetHandler("mapObjectToTarget", apiMapObjectToTarget)
 }
 
 /*

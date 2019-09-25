@@ -17,7 +17,7 @@ MOM's business objects.
 
 const (
 	fieldMapNamespace = "ns"
-	fieldMapFrom      = "from"
+	fieldMapFrom      = "frm"
 	fieldMapTo        = "to"
 	fieldMapTime      = "t"
 	fieldMapAppId     = "app"
@@ -109,6 +109,10 @@ const (
 	fieldAppSecret = "sec"
 	fieldAppTime   = "t"
 	fieldAppConfig = "cfg"
+)
+
+var (
+	appSystem = "system"
 )
 
 /*

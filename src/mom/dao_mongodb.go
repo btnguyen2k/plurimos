@@ -10,6 +10,7 @@ import (
 	"log"
 	"main/src/goems"
 	"strings"
+	"time"
 )
 
 /*
@@ -42,12 +43,14 @@ func createMongoConnect() *prom.MongoConnect {
 }
 
 func NewMongodbDaoMoMapping(mongoConnect *prom.MongoConnect, baseCollectionName string) IDaoMoMapping {
-	dao := &MongodbDaoMoMapping{mongoConnect: mongoConnect, baseCollectionName: baseCollectionName, collectionInitCache: map[string]bool{}}
+	dao := &MongodbDaoMoMapping{baseCollectionName: baseCollectionName, collectionInitCache: map[string]bool{}}
+	dao.GenericDaoMongo = mongo.NewGenericDaoMongo(mongoConnect, godal.NewAbstractGenericDao(dao))
+	dao.SetTransactionMode(true)
 	return dao
 }
 
 type MongodbDaoMoMapping struct {
-	mongoConnect        *prom.MongoConnect
+	*mongo.GenericDaoMongo
 	baseCollectionName  string // name of collection store data
 	collectionInitCache map[string]bool
 }
@@ -67,16 +70,16 @@ func (dao *MongodbDaoMoMapping) InitStorage(appId string) error {
 	if exists {
 		return nil
 	}
-	exists, err := dao.mongoConnect.HasCollection(collectionName)
-	if err != nil {
-		return err
-	}
-	if exists {
+	if exists, err := dao.GetMongoConnect().HasCollection(collectionName); exists || err != nil {
+		if err != nil {
+			return err
+		}
+		dao.collectionInitCache[collectionName] = true
 		return nil
 	}
 
 	// create collection if not exists
-	dbResult, err := dao.mongoConnect.CreateCollection(collectionName)
+	dbResult, err := dao.GetMongoConnect().CreateCollection(collectionName)
 	if err != nil || dbResult.Err() != nil {
 		if err != nil {
 			log.Printf("Error while creating collection %s: %e", collectionName, err)
@@ -91,7 +94,7 @@ func (dao *MongodbDaoMoMapping) InitStorage(appId string) error {
 	dao.collectionInitCache[collectionName] = true
 
 	// create indexes
-	dbResult, err = dao.mongoConnect.CreateIndexes(collectionName, []interface{}{
+	dbResult, err = dao.GetMongoConnect().CreateIndexes(collectionName, []interface{}{
 		map[string]interface{}{
 			"key": map[string]interface{}{
 				fieldMapNamespace: 1,
@@ -128,8 +131,8 @@ DestroyStorage implements IDaoMoMapping.DestroyStorage
 */
 func (dao *MongodbDaoMoMapping) DestroyStorage(appId string) error {
 	collectionName := dao.calcCollectionName(appId)
-	db := dao.mongoConnect.GetDatabase()
-	ctx, _ := dao.mongoConnect.NewBackgroundContext()
+	db := dao.GetMongoConnect().GetDatabase()
+	ctx, _ := dao.GetMongoConnect().NewBackgroundContext()
 	dbResult := db.RunCommand(ctx, bson.M{"drop": collectionName})
 	if dbResult.Err() != nil {
 		return dbResult.Err()
@@ -138,61 +141,69 @@ func (dao *MongodbDaoMoMapping) DestroyStorage(appId string) error {
 	return nil
 }
 
-func (dao *MongodbDaoMoMapping) newBoFromJson(j bson.M) *BoMapping {
-	if j == nil {
-		return nil
-	}
-	bo := &BoMapping{}
-	bo.FromMap(j)
-	return bo
+// GdaoCreateFilter implements godal.IGenericDao.GdaoCreateFilter.
+//
+//  - DAO must implement GdaoCreateFilter!
+func (dao *MongodbDaoMoMapping) GdaoCreateFilter(_ string, gbo godal.IGenericBo) interface{} {
+	namespace := gbo.GboGetAttrUnsafe(fieldMapNamespace, reddo.TypeString).(string)
+	from := gbo.GboGetAttrUnsafe(fieldMapFrom, reddo.TypeString).(string)
+	return bson.M{fieldMapNamespace: namespace, fieldMapFrom: normalizeMappingObject(namespace, from)}
 }
 
-func (dao *MongodbDaoMoMapping) serializeBoToJson(bo *BoMapping) bson.M {
-	return bo.ToMap()
+// toBo transforms godal.IGenericBo to BoApp
+func (dao *MongodbDaoMoMapping) toBo(gbo godal.IGenericBo) *BoMapping {
+	if gbo == nil {
+		return nil
+	}
+	bo := BoMapping{}
+	if err := gbo.GboTransferViaJson(&bo); err != nil {
+		return nil
+	}
+	return &bo
+}
+
+// toGbo transforms godal.IGenericBo to BoApp
+func (dao *MongodbDaoMoMapping) toGbo(bo *BoMapping) godal.IGenericBo {
+	if bo == nil {
+		return nil
+	}
+	gbo := godal.NewGenericBo()
+	if err := gbo.GboImportViaJson(bo); err != nil {
+		return nil
+	}
+	return gbo
 }
 
 func (dao *MongodbDaoMoMapping) doGetMapping(ctx context.Context, appId, namespace, from string) (*BoMapping, error) {
 	collectionName := dao.calcCollectionName(appId)
-	mappings := dao.mongoConnect.GetCollection(collectionName)
-	filter := bson.M{fieldMapNamespace: namespace, fieldMapFrom: normalizeMappingName(namespace, from)}
-	dbResult := mappings.FindOne(ctx, filter)
-	doc, err := dao.mongoConnect.DecodeSingleResult(dbResult)
-	if err != nil {
-		return nil, err
-	}
-	return dao.newBoFromJson(doc), nil
+	filter := bson.M{fieldMapNamespace: namespace, fieldMapFrom: normalizeMappingObject(namespace, from)}
+	gbo, err := dao.GdaoFetchOne(collectionName, filter)
+	return dao.toBo(gbo), err
 }
 
 /*
 FindTargetForObject implements IDaoMoMapping.FindTargetForObject
 */
 func (dao *MongodbDaoMoMapping) FindTargetForObject(appId, namespace, from string) (*BoMapping, error) {
-	ctx, _ := dao.mongoConnect.NewBackgroundContext()
-	return dao.doGetMapping(ctx, appId, namespace, from)
+	return dao.doGetMapping(nil, appId, namespace, from)
 }
 
 func (dao *MongodbDaoMoMapping) doGetReversedMappings(ctx context.Context, appId, namespace, to string) (map[string]*BoMapping, error) {
 	collectionName := dao.calcCollectionName(appId)
-	mappings := dao.mongoConnect.GetCollection(collectionName)
 	filter := bson.M{fieldMapNamespace: namespace, fieldMapTo: to}
-	cur, err := mappings.Find(ctx, filter)
-	defer cur.Close(ctx)
+	gboList, err := dao.GdaoFetchMany(collectionName, filter, nil, 0, 0)
 	if err != nil {
 		return nil, err
 	}
 	result := make(map[string]*BoMapping)
-	dao.mongoConnect.DecodeResultCallback(ctx, cur, func(docNum int, doc bson.M, err error) bool {
-		if err == nil {
-			bo := dao.newBoFromJson(doc)
+	if gboList != nil {
+		for _, gbo := range gboList {
+			bo := dao.toBo(gbo)
 			if bo != nil {
 				result[bo.From] = bo
 			}
-			return true
-		} else {
-			log.Printf("Error file fetching rows %e", err)
-			return true
 		}
-	})
+	}
 	return result, nil
 }
 
@@ -200,15 +211,51 @@ func (dao *MongodbDaoMoMapping) doGetReversedMappings(ctx context.Context, appId
 FindObjectsToTarget implements IDaoMoMapping.FindObjectsToTarget
 */
 func (dao *MongodbDaoMoMapping) FindObjectsToTarget(appId, namespace, to string) (map[string]*BoMapping, error) {
-	ctx, _ := dao.mongoConnect.NewBackgroundContext()
-	return dao.doGetReversedMappings(ctx, appId, namespace, to)
+	return dao.doGetReversedMappings(nil, appId, namespace, to)
+}
+
+func (dao *MongodbDaoMoMapping) doInsert(ctx context.Context, bo *BoMapping) (bool, error) {
+	numRows, err := dao.GdaoCreate(dao.calcCollectionName(bo.AppId), dao.toGbo(bo))
+	return numRows > 0, err
 }
 
 /*
 Map implements IDaoMoMapping.Map
 */
 func (dao *MongodbDaoMoMapping) Map(appId, namespace, object, target string) (*BoMapping, error) {
-	panic("implement me")
+	bo := &BoMapping{
+		Namespace: namespace,
+		From:      object,
+		To:        target,
+		Time:      time.Now(),
+		AppId:     appId,
+	}
+	_, err := dao.doInsert(nil, bo)
+	if err != nil {
+		return nil, err
+	}
+	return bo, nil
+	// ctx, _ := dao.GetMongoConnect().NewBackgroundContext()
+	// err := dao.GetMongoConnect().GetMongoClient().UseSession(ctx, func(sctx mongo2.SessionContext) error {
+	//     err := sctx.StartTransaction(options.Transaction().SetReadConcern(readconcern.Snapshot()).SetWriteConcern(writeconcern.New(writeconcern.WMajority())))
+	//     if err != nil {
+	//         return err
+	//     }
+	//     curMap, err := dao.doGetMapping(sctx, appId, namespace, bo.From)
+	//     if err != nil {
+	//         return err
+	//     }
+	//     if curMap != nil && curMap.To != bo.To {
+	//         return errors.Errorf("Object [%s] already mapped to another target.", object)
+	//     } else if curMap == nil {
+	//         _, err = dao.doInsert(sctx, bo)
+	//         if err != nil {
+	//             return err
+	//         }
+	//     }
+	//     return sctx.CommitTransaction(sctx)
+	// })
+	// return bo, err
 }
 
 /*
