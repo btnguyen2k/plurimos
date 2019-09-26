@@ -4,23 +4,33 @@ import (
 	"fmt"
 	"github.com/btnguyen2k/consu/reddo"
 	"main/src/itineris"
+	"strings"
 )
+
+func parseParam(params *itineris.ApiParams, name string, defaultResult *itineris.ApiResult) (string, *itineris.ApiResult) {
+	value := params.GetParamAsTypeUnsafe(name, reddo.TypeString)
+	if value == nil || strings.TrimSpace(value.(string)) == "" {
+		return "", defaultResult
+	}
+	return strings.TrimSpace(value.(string)), nil
+}
 
 /*
 API handler "getMappingForObject"
 */
 func apiGetMappingForObject(_ *itineris.ApiContext, auth *itineris.ApiAuth, params *itineris.ApiParams) *itineris.ApiResult {
-	ns := params.GetParamAsTypeUnsafe("ns", reddo.TypeString)
-	if ns == nil || ns.(string) == "" {
-		return itineris.ResultNotFound
+	var ns, obj string
+	var result *itineris.ApiResult
+	if ns, result = parseParam(params, "ns", itineris.ResultNotFound); result != nil {
+		return result
 	}
-	obj := params.GetParamAsTypeUnsafe("from", reddo.TypeString)
-	if obj == nil || obj.(string) == "" {
-		return itineris.ResultNotFound
+	if obj, result = parseParam(params, "from", itineris.ResultNotFound); result != nil {
+		return result
 	}
+
 	appId := auth.GetAppId()
-	obj = normalizeMappingObject(ns.(string), obj.(string))
-	mapping, err := daoMappings.FindTargetForObject(appId, ns.(string), obj.(string))
+	obj = normalizeMappingObject(ns, obj)
+	mapping, err := daoMappings.FindTargetForObject(appId, ns, obj)
 	if err != nil {
 		return itineris.NewApiResult(itineris.StatusErrorServer).SetMessage(err.Error())
 	}
@@ -34,30 +44,29 @@ func apiGetMappingForObject(_ *itineris.ApiContext, auth *itineris.ApiAuth, para
 API handler "mapObjectToTarget"
 */
 func apiMapObjectToTarget(_ *itineris.ApiContext, auth *itineris.ApiAuth, params *itineris.ApiParams) *itineris.ApiResult {
-	ns := params.GetParamAsTypeUnsafe("ns", reddo.TypeString)
-	if ns == nil || ns.(string) == "" {
-		return itineris.NewApiResult(itineris.StatusErrorClient).SetMessage("Required parameter [ns].")
+	var ns, obj, target string
+	var result *itineris.ApiResult
+	if ns, result = parseParam(params, "ns", itineris.NewApiResult(itineris.StatusErrorClient).SetMessage("Required parameter [ns].")); result != nil {
+		return result
 	}
-	obj := params.GetParamAsTypeUnsafe("from", reddo.TypeString)
-	if obj == nil || obj.(string) == "" {
-		return itineris.NewApiResult(itineris.StatusErrorClient).SetMessage("Required parameter [from].")
+	if obj, result = parseParam(params, "from", itineris.NewApiResult(itineris.StatusErrorClient).SetMessage("Required parameter [from].")); result != nil {
+		return result
 	}
-	target := params.GetParamAsTypeUnsafe("to", reddo.TypeString)
-	if target == nil || target.(string) == "" {
-		return itineris.NewApiResult(itineris.StatusErrorClient).SetMessage("Required parameter [to].")
+	if target, result = parseParam(params, "to", itineris.NewApiResult(itineris.StatusErrorClient).SetMessage("Required parameter [to].")); result != nil {
+		return result
 	}
 
 	appId := auth.GetAppId()
-	ns = normalizeNamespace(ns.(string))
-	obj = normalizeMappingObject(ns.(string), obj.(string))
-	target = normalizeMappingTarget(target.(string))
-	mapping, err := daoMappings.FindTargetForObject(appId, ns.(string), obj.(string))
+	ns = normalizeNamespace(ns)
+	obj = normalizeMappingObject(ns, obj)
+	target = normalizeMappingTarget(target)
+	mapping, err := daoMappings.FindTargetForObject(appId, ns, obj)
 	if err != nil {
 		return itineris.NewApiResult(itineris.StatusErrorServer).SetMessage(err.Error())
 	}
 	if mapping != nil {
 		// obj has already mapped to a target
-		if mapping.To != target.(string) {
+		if mapping.To != target {
 			return itineris.NewApiResult(itineris.StatusConflict).
 				SetMessage(fmt.Sprintf("[%s] has already mapped to another target in namespace [%s].", obj, ns))
 		}
@@ -65,7 +74,7 @@ func apiMapObjectToTarget(_ *itineris.ApiContext, auth *itineris.ApiAuth, params
 	}
 
 	if !arbitraryTargetMode {
-		reversedMappings, err := daoMappings.FindObjectsToTarget(appId, ns.(string), target.(string))
+		reversedMappings, err := daoMappings.FindObjectsToTarget(appId, ns, target)
 		if err != nil {
 			return itineris.NewApiResult(itineris.StatusErrorServer).SetMessage(err.Error())
 		}
@@ -74,9 +83,36 @@ func apiMapObjectToTarget(_ *itineris.ApiContext, auth *itineris.ApiAuth, params
 		}
 	}
 
-	mapping, err = daoMappings.Map(appId, ns.(string), obj.(string), target.(string))
+	mapping, err = daoMappings.Map(appId, ns, obj, target)
 	if err != nil {
 		return itineris.NewApiResult(itineris.StatusErrorServer).SetMessage(err.Error())
 	}
 	return itineris.NewApiResult(itineris.StatusOk).SetData(mapping)
+}
+
+/*
+API handler "unmapObjectToTarget"
+*/
+func apiUnmapObjectToTarget(_ *itineris.ApiContext, auth *itineris.ApiAuth, params *itineris.ApiParams) *itineris.ApiResult {
+	var ns, obj, target string
+	var result *itineris.ApiResult
+	if ns, result = parseParam(params, "ns", itineris.NewApiResult(itineris.StatusErrorClient).SetMessage("Required parameter [ns].")); result != nil {
+		return result
+	}
+	if obj, result = parseParam(params, "from", itineris.NewApiResult(itineris.StatusErrorClient).SetMessage("Required parameter [from].")); result != nil {
+		return result
+	}
+	if target, result = parseParam(params, "to", itineris.NewApiResult(itineris.StatusErrorClient).SetMessage("Required parameter [to].")); result != nil {
+		return result
+	}
+
+	appId := auth.GetAppId()
+	ns = normalizeNamespace(ns)
+	obj = normalizeMappingObject(ns, obj)
+	target = normalizeMappingTarget(target)
+	_, err := daoMappings.Unmap(appId, ns, obj, target)
+	if err != nil {
+		return itineris.NewApiResult(itineris.StatusErrorServer).SetMessage(err.Error())
+	}
+	return itineris.ResultOk
 }

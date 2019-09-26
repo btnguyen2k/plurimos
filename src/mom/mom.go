@@ -122,8 +122,9 @@ func initApiHandlers(router *itineris.ApiRouter) {
 	router.SetHandler("updateApp", apiUpdateApp)
 	router.SetHandler("deleteApp", apiDeleteApp)
 
-	router.SetHandler("getMappingForObject", apiGetMappingForObject)
-	router.SetHandler("mapObjectToTarget", apiMapObjectToTarget)
+	router.SetHandler("mapObjectToTarget", apiMapObjectToTarget)     // C
+	router.SetHandler("getMappingForObject", apiGetMappingForObject) // R
+	router.SetHandler("unmapObjectToTarget", apiUnmapObjectToTarget) // D
 }
 
 /*

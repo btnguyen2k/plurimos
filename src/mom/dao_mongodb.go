@@ -235,27 +235,6 @@ func (dao *MongodbDaoMoMapping) Map(appId, namespace, object, target string) (*B
 		return nil, err
 	}
 	return bo, nil
-	// ctx, _ := dao.GetMongoConnect().NewBackgroundContext()
-	// err := dao.GetMongoConnect().GetMongoClient().UseSession(ctx, func(sctx mongo2.SessionContext) error {
-	//     err := sctx.StartTransaction(options.Transaction().SetReadConcern(readconcern.Snapshot()).SetWriteConcern(writeconcern.New(writeconcern.WMajority())))
-	//     if err != nil {
-	//         return err
-	//     }
-	//     curMap, err := dao.doGetMapping(sctx, appId, namespace, bo.From)
-	//     if err != nil {
-	//         return err
-	//     }
-	//     if curMap != nil && curMap.To != bo.To {
-	//         return errors.Errorf("Object [%s] already mapped to another target.", object)
-	//     } else if curMap == nil {
-	//         _, err = dao.doInsert(sctx, bo)
-	//         if err != nil {
-	//             return err
-	//         }
-	//     }
-	//     return sctx.CommitTransaction(sctx)
-	// })
-	// return bo, err
 }
 
 /*
@@ -263,6 +242,24 @@ MapIfTargetExists implements IDaoMoMapping.MapIfTargetExists
 */
 func (dao *MongodbDaoMoMapping) MapIfTargetExists(appId, namespace, object, target string) (*BoMapping, error) {
 	panic("implement me")
+}
+
+func (dao *MongodbDaoMoMapping) doDelete(ctx context.Context, bo *BoMapping) (bool, error) {
+	numRows, err := dao.GdaoDelete(dao.calcCollectionName(bo.AppId), dao.toGbo(bo))
+	return numRows > 0, err
+}
+
+/*
+Unmap implements IDaoMoMapping.Unmap
+*/
+func (dao *MongodbDaoMoMapping) Unmap(appId, namespace, object, target string) (bool, error) {
+	bo := &BoMapping{
+		Namespace: namespace,
+		From:      object,
+		To:        target,
+		AppId:     appId,
+	}
+	return dao.doDelete(nil, bo)
 }
 
 /*----------------------------------------------------------------------*/

@@ -100,6 +100,11 @@ type IDaoMoMapping interface {
 		      - 'object' had mapped to the target
 	*/
 	MapIfTargetExists(appId, namespace, object, target string) (*BoMapping, error)
+
+	/*
+		Map removes the mapping from object to target.
+	*/
+	Unmap(appId, namespace, object, target string) (bool, error)
 }
 
 /*----------------------------------------------------------------------*/
