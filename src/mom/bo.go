@@ -80,7 +80,7 @@ type IDaoMoMapping interface {
 	/*
 		FindObjectsToTargets is given a target, finds all the objects of direction {target <- objects}.
 	*/
-	FindObjectsToTarget(appId, namespace, target string) (map[string]*BoMapping, error)
+	FindObjectsToTarget(appId, namespace, target string) ([]*BoMapping, error)
 
 	/*
 		Map maps object to target.

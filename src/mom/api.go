@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/btnguyen2k/consu/reddo"
 	"main/src/itineris"
+	"regexp"
 	"strings"
 )
 
@@ -115,4 +116,31 @@ func apiUnmapObjectToTarget(_ *itineris.ApiContext, auth *itineris.ApiAuth, para
 		return itineris.NewApiResult(itineris.StatusErrorServer).SetMessage(err.Error())
 	}
 	return itineris.ResultOk
+}
+
+/*
+API handler "getReverseMappinngsForTarget"
+*/
+func apiGetReverseMappinngsForTarget(_ *itineris.ApiContext, auth *itineris.ApiAuth, params *itineris.ApiParams) *itineris.ApiResult {
+	var nsList, target string
+	var result *itineris.ApiResult
+	if nsList, result = parseParam(params, "ns", itineris.ResultNotFound); result != nil {
+		return result
+	}
+	if target, result = parseParam(params, "to", itineris.ResultNotFound); result != nil {
+		return result
+	}
+	resultData := map[string][]*BoMapping{}
+	appId := auth.GetAppId()
+	target = normalizeMappingTarget(target)
+	namespaces := regexp.MustCompile(`[,;\s]+`).Split(nsList, -1)
+	for _, ns := range namespaces {
+		ns = normalizeNamespace(ns)
+		mappings, err := daoMappings.FindObjectsToTarget(appId, ns, target)
+		if err != nil {
+			return itineris.NewApiResult(itineris.StatusErrorServer).SetMessage(err.Error())
+		}
+		resultData[ns] = mappings
+	}
+	return itineris.ResultOk.SetData(resultData)
 }

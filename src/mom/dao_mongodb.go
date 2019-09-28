@@ -188,19 +188,19 @@ func (dao *MongodbDaoMoMapping) FindTargetForObject(appId, namespace, from strin
 	return dao.doGetMapping(nil, appId, namespace, from)
 }
 
-func (dao *MongodbDaoMoMapping) doGetReversedMappings(ctx context.Context, appId, namespace, to string) (map[string]*BoMapping, error) {
+func (dao *MongodbDaoMoMapping) doGetReversedMappings(ctx context.Context, appId, namespace, to string) ([]*BoMapping, error) {
 	collectionName := dao.calcCollectionName(appId)
 	filter := bson.M{fieldMapNamespace: namespace, fieldMapTo: to}
 	gboList, err := dao.GdaoFetchMany(collectionName, filter, nil, 0, 0)
 	if err != nil {
 		return nil, err
 	}
-	result := make(map[string]*BoMapping)
+	result := make([]*BoMapping, 0)
 	if gboList != nil {
 		for _, gbo := range gboList {
 			bo := dao.toBo(gbo)
 			if bo != nil {
-				result[bo.From] = bo
+				result = append(result, bo)
 			}
 		}
 	}
@@ -210,7 +210,7 @@ func (dao *MongodbDaoMoMapping) doGetReversedMappings(ctx context.Context, appId
 /*
 FindObjectsToTarget implements IDaoMoMapping.FindObjectsToTarget
 */
-func (dao *MongodbDaoMoMapping) FindObjectsToTarget(appId, namespace, to string) (map[string]*BoMapping, error) {
+func (dao *MongodbDaoMoMapping) FindObjectsToTarget(appId, namespace, to string) ([]*BoMapping, error) {
 	return dao.doGetReversedMappings(nil, appId, namespace, to)
 }
 
