@@ -6,7 +6,12 @@ import (
 	"github.com/btnguyen2k/godal"
 	"github.com/btnguyen2k/godal/mongo"
 	"github.com/btnguyen2k/prom"
+	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
+	mongo2 "go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readconcern"
+	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 	"log"
 	"main/src/goems"
 	"strings"
@@ -237,13 +242,6 @@ func (dao *MongodbDaoMoMapping) Map(appId, namespace, object, target string) (*B
 	return bo, nil
 }
 
-/*
-MapIfTargetExists implements IDaoMoMapping.MapIfTargetExists
-*/
-func (dao *MongodbDaoMoMapping) MapIfTargetExists(appId, namespace, object, target string) (*BoMapping, error) {
-	panic("implement me")
-}
-
 func (dao *MongodbDaoMoMapping) doDelete(ctx context.Context, bo *BoMapping) (bool, error) {
 	numRows, err := dao.GdaoDelete(dao.calcCollectionName(bo.AppId), dao.toGbo(bo))
 	return numRows > 0, err
@@ -260,6 +258,69 @@ func (dao *MongodbDaoMoMapping) Unmap(appId, namespace, object, target string) (
 		AppId:     appId,
 	}
 	return dao.doDelete(nil, bo)
+}
+
+func (dao *MongodbDaoMoMapping) doAllocate(ctx context.Context, appId string, mapNsObj map[string]string, target string) (string, error) {
+	if ctx == nil {
+		ctx, _ = dao.GetMongoConnect().NewBackgroundContext()
+	}
+	var finalTarget = target
+	err := dao.GetMongoConnect().GetMongoClient().UseSession(ctx, func(sctx mongo2.SessionContext) error {
+		err := sctx.StartTransaction(options.Transaction().
+			SetReadConcern(readconcern.Snapshot()).
+			SetWriteConcern(writeconcern.New(writeconcern.WMajority())))
+		if err != nil {
+			return err
+		}
+		var existingTarget = ""
+		var objsToMap = make([]*BoMapping, 0)
+		for ns, obj := range mapNsObj {
+			mapping, err := dao.doGetMapping(sctx, appId, ns, obj)
+			if err != nil {
+				return err
+			}
+			if mapping != nil {
+				if existingTarget == "" {
+					existingTarget = mapping.To
+					finalTarget = existingTarget
+				} else if existingTarget != mapping.To {
+					return errors.Errorf("Input objects cannot map to a same target [%s]", target)
+				}
+			} else {
+				objsToMap = append(objsToMap, &BoMapping{
+					Namespace: ns,
+					From:      obj,
+					AppId:     appId,
+				})
+			}
+		}
+		if existingTarget != "" {
+			finalTarget = existingTarget
+		}
+		if len(objsToMap) > 0 {
+			for _, mapping := range objsToMap {
+				mapping.To = finalTarget
+				mapping.Time = time.Now()
+				_, err := dao.doInsert(sctx, mapping)
+				if err != nil {
+					sctx.AbortTransaction(sctx)
+					return err
+				}
+			}
+		}
+		return sctx.CommitTransaction(sctx)
+	})
+	return finalTarget, err
+}
+
+/*
+Allocate implements IDaoMoMapping.Allocate
+*/
+func (dao *MongodbDaoMoMapping) Allocate(appId string, mapNsObj map[string]string, target string) (string, error) {
+	if mapNsObj == nil || len(mapNsObj) == 0 {
+		return "", nil
+	}
+	return dao.doAllocate(nil, appId, mapNsObj, target)
 }
 
 /*----------------------------------------------------------------------*/

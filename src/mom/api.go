@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/btnguyen2k/consu/reddo"
 	"main/src/itineris"
+	"main/src/utils"
 	"regexp"
 	"strings"
 )
@@ -17,7 +18,18 @@ func parseParam(params *itineris.ApiParams, name string, defaultResult *itineris
 }
 
 /*
-API handler "getMappingForObject"
+apiGetMappingForObject handles API "getMappingForObject".
+
+Input parameters:
+
+	- ns: (string) namespace
+	- from: (string) object
+
+Output:
+
+	- itineris.StatusErrorServer: error on server during API call.
+	- itineris.StatusNotFound: object is not mapping to any target in the namespace.
+	- itineris.StatusOk: successful, mapping data is returned in `data` field as a map.
 */
 func apiGetMappingForObject(_ *itineris.ApiContext, auth *itineris.ApiAuth, params *itineris.ApiParams) *itineris.ApiResult {
 	var ns, obj string
@@ -42,7 +54,25 @@ func apiGetMappingForObject(_ *itineris.ApiContext, auth *itineris.ApiAuth, para
 }
 
 /*
-API handler "mapObjectToTarget"
+apiMapObjectToTarget handles API "mapObjectToTarget".
+
+Input parameters:
+
+	- ns: (string) namespace
+	- from: (string) object
+	- to: (string)target
+
+Output:
+
+	- itineris.StatusErrorClient: missing or invalid input parameters.
+	- itineris.StatusErrorServer: error on server during API call.
+	- itineris.StatusConflict: object has already mapped to another target in the namespace.
+	- itineris.StatusOk: successful, mapping data is returned in `data` field as a map.
+
+ArbitraryTargetMode:
+
+	- false: target must exist in the namespace or API will fail with status itineris.StatusErrorClient.
+	- true: server will not check for target's existence.
 */
 func apiMapObjectToTarget(_ *itineris.ApiContext, auth *itineris.ApiAuth, params *itineris.ApiParams) *itineris.ApiResult {
 	var ns, obj, target string
@@ -92,7 +122,19 @@ func apiMapObjectToTarget(_ *itineris.ApiContext, auth *itineris.ApiAuth, params
 }
 
 /*
-API handler "unmapObjectToTarget"
+apiUnmapObjectToTarget handles API "unmapObjectToTarget".
+
+Input parameters:
+
+	- ns: (string) namespace
+	- from: (string) object
+	- to: (string)target
+
+Output:
+
+	- itineris.StatusErrorClient: missing or invalid input parameters.
+	- itineris.StatusErrorServer: error on server during API call.
+	- itineris.StatusOk: successful.
 */
 func apiUnmapObjectToTarget(_ *itineris.ApiContext, auth *itineris.ApiAuth, params *itineris.ApiParams) *itineris.ApiResult {
 	var ns, obj, target string
@@ -119,15 +161,26 @@ func apiUnmapObjectToTarget(_ *itineris.ApiContext, auth *itineris.ApiAuth, para
 }
 
 /*
-API handler "getReverseMappinngsForTarget"
+apiGetReverseMappinngsForTarget handles API "getReverseMappinngsForTarget".
+
+Input parameters:
+
+	- ns: (string) list of namespace, separated by comma (,) or semi-colon (;)
+	- to: (string)target
+
+Output:
+
+	- itineris.StatusErrorClient: missing or invalid input parameters.
+	- itineris.StatusErrorServer: error on server during API call.
+	- itineris.StatusOk: successful, reversed mappings are returned in `data` field as a map {namespace: [array of mappings found in the namespace]}
 */
 func apiGetReverseMappinngsForTarget(_ *itineris.ApiContext, auth *itineris.ApiAuth, params *itineris.ApiParams) *itineris.ApiResult {
 	var nsList, target string
 	var result *itineris.ApiResult
-	if nsList, result = parseParam(params, "ns", itineris.ResultNotFound); result != nil {
+	if nsList, result = parseParam(params, "ns", itineris.NewApiResult(itineris.StatusErrorClient).SetMessage("Required parameter [ns].")); result != nil {
 		return result
 	}
-	if target, result = parseParam(params, "to", itineris.ResultNotFound); result != nil {
+	if target, result = parseParam(params, "to", itineris.NewApiResult(itineris.StatusErrorClient).SetMessage("Required parameter [to].")); result != nil {
 		return result
 	}
 	resultData := map[string][]*BoMapping{}
@@ -142,5 +195,37 @@ func apiGetReverseMappinngsForTarget(_ *itineris.ApiContext, auth *itineris.ApiA
 		}
 		resultData[ns] = mappings
 	}
-	return itineris.ResultOk.SetData(resultData)
+	return itineris.NewApiResult(itineris.StatusOk).SetData(resultData)
+}
+
+/*
+apiAllocateTargetAndMap handles API "allocateTargetAndMap"
+
+Input parameters:
+
+	- a map of {namespace: object}
+
+Output:
+
+	- itineris.StatusErrorClient: missing or invalid input parameters.
+	- itineris.StatusErrorServer: error on server during API call.
+	- itineris.StatusOk: successful, reversed mappings are returned in `data` field as a map {}
+*/
+func apiAllocateTargetAndMap(_ *itineris.ApiContext, auth *itineris.ApiAuth, params *itineris.ApiParams) *itineris.ApiResult {
+	appId := auth.GetAppId()
+	mapNsObj := make(map[string]string)
+	for k, v := range params.GetAllParams() {
+		ns := normalizeNamespace(k)
+		obj, _ := reddo.ToString(v)
+		mapNsObj[ns] = normalizeMappingObject(ns, obj)
+	}
+	target := normalizeMappingTarget(utils.UniqueIdSmall())
+	target, err := daoMappings.Allocate(appId, mapNsObj, target)
+	if err != nil {
+		if target != "" {
+			return itineris.NewApiResult(itineris.StatusConflict).SetMessage(err.Error())
+		}
+		return itineris.NewApiResult(itineris.StatusErrorServer).SetMessage(err.Error())
+	}
+	return itineris.NewApiResult(itineris.StatusOk).SetData(target)
 }

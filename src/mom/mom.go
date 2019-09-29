@@ -126,6 +126,7 @@ func initApiHandlers(router *itineris.ApiRouter) {
 	router.SetHandler("getMappingForObject", apiGetMappingForObject)
 	router.SetHandler("unmapObjectToTarget", apiUnmapObjectToTarget)
 	router.SetHandler("getReverseMappinngsForTarget", apiGetReverseMappinngsForTarget)
+	router.SetHandler("allocateTargetAndMap", apiAllocateTargetAndMap)
 }
 
 /*

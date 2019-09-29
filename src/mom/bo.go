@@ -92,19 +92,14 @@ type IDaoMoMapping interface {
 	Map(appId, namespace, object, target string) (*BoMapping, error)
 
 	/*
-		MapIfTargetExists maps object to target.
-		MapIfTargetExists is successful if and only if:
-
-		    - 'target' exists, and
-		      - 'object' has not mapped to any target, or
-		      - 'object' had mapped to the target
-	*/
-	MapIfTargetExists(appId, namespace, object, target string) (*BoMapping, error)
-
-	/*
 		Map removes the mapping from object to target.
 	*/
 	Unmap(appId, namespace, object, target string) (bool, error)
+
+	/*
+	   Allocate performs bulk mapping from objects to a target on multiple namespaces.
+	*/
+	Allocate(appId string, mapNsObj map[string]string, target string) (string, error)
 }
 
 /*----------------------------------------------------------------------*/
@@ -167,19 +162,6 @@ func initData(dbtype string) error {
 			if dbResult.Err() != nil {
 				return dbResult.Err()
 			}
-			// dbResult, err = mongoConnect.CreateIndexes(collectionApps, []interface{}{
-			//     map[string]interface{}{
-			//         "key":    map[string]interface{}{fieldAppId: 1},
-			//         "name":   "uidx_id",
-			//         "unique": true,
-			//     },
-			// })
-			// if err != nil {
-			//     return err
-			// }
-			// if dbResult.Err() != nil {
-			//     return dbResult.Err()
-			// }
 		}
 		return nil
 	}

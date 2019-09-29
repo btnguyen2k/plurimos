@@ -10,11 +10,19 @@ import (
 )
 
 /*
-API handler "listApps"
+apiListApps handles API call "listApps".
+
+Input parameters: none.
+
+Output:
+
+	- itineris.StatusErrorServer: error on server during API call.
+	- itineris.StatusOk: successful, available apps are returned in `data` field as an array.
+
+Authorization: only "system" app can call this API.
 */
 func apiListApps(_ *itineris.ApiContext, auth *itineris.ApiAuth, _ *itineris.ApiParams) *itineris.ApiResult {
 	if auth.GetAppId() != appSystem {
-		// only "system" app can request app list
 		return itineris.ResultNoPermission
 	}
 
@@ -26,11 +34,25 @@ func apiListApps(_ *itineris.ApiContext, auth *itineris.ApiAuth, _ *itineris.Api
 }
 
 /*
-API handler "createApp"
+apiCreateApp handles API call "createApp".
+
+Input parameters:
+
+	- id: (optional, string) app's unique id. If not provided, a unique id will be generated.
+	- secret: (string) app's secret key, used for authentication.
+	- other arbitrary fields/values.
+
+Output:
+
+	- itineris.StatusErrorClient: missing or invalid input parameters.
+	- itineris.StatusErrorServer: error on server during API call.
+	- itineris.StatusConflict: app with specified id already existed.
+	- itineris.StatusOk: successful, app's id is returned in `data` field.
+
+Authorization: only "system" app can call this API.
 */
 func apiCreateApp(_ *itineris.ApiContext, auth *itineris.ApiAuth, params *itineris.ApiParams) *itineris.ApiResult {
 	if auth.GetAppId() != appSystem {
-		// only "system" app can create new app
 		return itineris.ResultNoPermission
 	}
 
@@ -78,7 +100,17 @@ func apiCreateApp(_ *itineris.ApiContext, auth *itineris.ApiAuth, params *itiner
 }
 
 /*
-API handler "getApp"
+apiGetApp handles API call "getApp".
+
+Input parameters: none.
+
+Output:
+
+	- itineris.StatusErrorServer: error on server during API call.
+	- itineris.StatusNotFound: app does not exist.
+	- itineris.StatusOk: successful, app's info is returned in `data` field as a map.
+
+Authorization: only "system" and owner app can call this API.
 */
 func apiGetApp(_ *itineris.ApiContext, auth *itineris.ApiAuth, params *itineris.ApiParams) *itineris.ApiResult {
 	id := params.GetParamAsTypeUnsafe("id", reddo.TypeString)
@@ -86,7 +118,6 @@ func apiGetApp(_ *itineris.ApiContext, auth *itineris.ApiAuth, params *itineris.
 		return itineris.ResultNotFound
 	}
 	if auth.GetAppId() != appSystem && auth.GetAppId() != id.(string) {
-		// only "system" app and owner can request app info
 		return itineris.ResultNoPermission
 	}
 
@@ -101,7 +132,21 @@ func apiGetApp(_ *itineris.ApiContext, auth *itineris.ApiAuth, params *itineris.
 }
 
 /*
-API handler "updateApp"
+apiUpdateApp handles API call "updateApp".
+
+Input parameters:
+
+	- id: (string) app's id.
+	- secret: (optional, string) new app's secret key.
+	- other arbitrary fields/values.
+
+Output:
+
+	- itineris.StatusErrorServer: error on server during API call.
+	- itineris.StatusNotFound: app does not exist.
+	- itineris.StatusOk: successful.
+
+Authorization: only "system" and owner app can call this API.
 */
 func apiUpdateApp(_ *itineris.ApiContext, auth *itineris.ApiAuth, params *itineris.ApiParams) *itineris.ApiResult {
 	id := params.GetParamAsTypeUnsafe("id", reddo.TypeString)
@@ -109,7 +154,6 @@ func apiUpdateApp(_ *itineris.ApiContext, auth *itineris.ApiAuth, params *itiner
 		return itineris.ResultNotFound
 	}
 	if auth.GetAppId() != appSystem && auth.GetAppId() != id.(string) {
-		// only "system" app and owner can update app info
 		return itineris.ResultNoPermission
 	}
 
@@ -141,11 +185,22 @@ func apiUpdateApp(_ *itineris.ApiContext, auth *itineris.ApiAuth, params *itiner
 }
 
 /*
-API handler "deleteApp"
+apiDeleteApp handles API call "deleteApp".
+
+Input parameters:
+
+	- id: (string) app's id.
+
+Output:
+
+	- itineris.StatusErrorServer: error on server during API call.
+	- itineris.StatusNotFound: app does not exist.
+	- itineris.StatusOk: successful.
+
+Authorization: only "system" app can call this API.
 */
 func apiDeleteApp(_ *itineris.ApiContext, auth *itineris.ApiAuth, params *itineris.ApiParams) *itineris.ApiResult {
 	if auth.GetAppId() != appSystem {
-		// only "system" app can delete app
 		return itineris.ResultNoPermission
 	}
 
