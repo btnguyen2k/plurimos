@@ -125,6 +125,16 @@ type BoApp struct {
 	Config map[string]interface{} `json:"cfg"`
 }
 
+func (bo *BoApp) Clone() *BoApp {
+	js, _ := json.Marshal(*bo)
+	clone := BoApp{}
+	err := json.Unmarshal(js, &clone)
+	if err != nil {
+		return nil
+	}
+	return &clone
+}
+
 /*
 IDaoMoApp defines API to access application storage.
 */

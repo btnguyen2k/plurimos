@@ -97,9 +97,16 @@ func (dao *MongodbDaoMoMapping) InitStorage(appId string) error {
 		log.Printf("Created collection %s", collectionName)
 	}
 	dao.collectionInitCache[collectionName] = true
+	// count := 0
+	// for ok, err := dao.GetMongoConnect().HasCollection(collectionName); !ok && count < 3; count++ {
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	ok, err = dao.GetMongoConnect().HasCollection(collectionName)
+	// }
 
 	// create indexes
-	dbResult, err = dao.GetMongoConnect().CreateIndexes(collectionName, []interface{}{
+	_, err = dao.GetMongoConnect().CreateCollectionIndexes(collectionName, []interface{}{
 		map[string]interface{}{
 			"key": map[string]interface{}{
 				fieldMapNamespace: 1,
@@ -116,14 +123,9 @@ func (dao *MongodbDaoMoMapping) InitStorage(appId string) error {
 			"name": "idx_to",
 		},
 	})
-	if err != nil || dbResult.Err() != nil {
-		if err != nil {
-			log.Printf("Error while creating indexes on collection %s: %e", collectionName, err)
-			return err
-		} else {
-			log.Printf("Error while creating indexes on collection %s: %e", collectionName, dbResult.Err())
-			return dbResult.Err()
-		}
+	if err != nil {
+		log.Printf("Error while creating indexes on collection %s: %e", collectionName, err)
+		return err
 	} else {
 		log.Printf("Created indexes for collection %s", collectionName)
 	}
@@ -136,14 +138,9 @@ DestroyStorage implements IDaoMoMapping.DestroyStorage
 */
 func (dao *MongodbDaoMoMapping) DestroyStorage(appId string) error {
 	collectionName := dao.calcCollectionName(appId)
-	db := dao.GetMongoConnect().GetDatabase()
-	ctx, _ := dao.GetMongoConnect().NewBackgroundContext()
-	dbResult := db.RunCommand(ctx, bson.M{"drop": collectionName})
-	if dbResult.Err() != nil {
-		return dbResult.Err()
-	}
+	err := dao.GetMongoConnect().GetCollection(collectionName).Drop(nil)
 	delete(dao.collectionInitCache, collectionName)
-	return nil
+	return err
 }
 
 // GdaoCreateFilter implements godal.IGenericDao.GdaoCreateFilter.
@@ -181,7 +178,7 @@ func (dao *MongodbDaoMoMapping) toGbo(bo *BoMapping) godal.IGenericBo {
 
 func (dao *MongodbDaoMoMapping) doGetMapping(ctx context.Context, appId, namespace, from string) (*BoMapping, error) {
 	collectionName := dao.calcCollectionName(appId)
-	filter := bson.M{fieldMapNamespace: namespace, fieldMapFrom: normalizeMappingObject(namespace, from)}
+	filter := bson.M{fieldMapNamespace: normalizeNamespace(namespace), fieldMapFrom: normalizeMappingObject(namespace, from)}
 	gbo, err := dao.GdaoFetchOne(collectionName, filter)
 	return dao.toBo(gbo), err
 }
@@ -195,7 +192,7 @@ func (dao *MongodbDaoMoMapping) FindTargetForObject(appId, namespace, from strin
 
 func (dao *MongodbDaoMoMapping) doGetReversedMappings(ctx context.Context, appId, namespace, to string) ([]*BoMapping, error) {
 	collectionName := dao.calcCollectionName(appId)
-	filter := bson.M{fieldMapNamespace: namespace, fieldMapTo: to}
+	filter := bson.M{fieldMapNamespace: normalizeNamespace(namespace), fieldMapTo: normalizeMappingTarget(to)}
 	gboList, err := dao.GdaoFetchMany(collectionName, filter, nil, 0, 0)
 	if err != nil {
 		return nil, err
@@ -229,9 +226,9 @@ Map implements IDaoMoMapping.Map
 */
 func (dao *MongodbDaoMoMapping) Map(appId, namespace, object, target string) (*BoMapping, error) {
 	bo := &BoMapping{
-		Namespace: namespace,
-		From:      object,
-		To:        target,
+		Namespace: normalizeNamespace(namespace),
+		From:      normalizeMappingObject(namespace, object),
+		To:        normalizeMappingTarget(target),
 		Time:      time.Now(),
 		AppId:     appId,
 	}
@@ -252,9 +249,9 @@ Unmap implements IDaoMoMapping.Unmap
 */
 func (dao *MongodbDaoMoMapping) Unmap(appId, namespace, object, target string) (bool, error) {
 	bo := &BoMapping{
-		Namespace: namespace,
-		From:      object,
-		To:        target,
+		Namespace: normalizeNamespace(namespace),
+		From:      normalizeMappingObject(namespace, object),
+		To:        normalizeMappingTarget(target),
 		AppId:     appId,
 	}
 	return dao.doDelete(nil, bo)
@@ -262,7 +259,7 @@ func (dao *MongodbDaoMoMapping) Unmap(appId, namespace, object, target string) (
 
 func (dao *MongodbDaoMoMapping) doAllocate(ctx context.Context, appId string, mapNsObj map[string]string, target string) (string, error) {
 	if ctx == nil {
-		ctx, _ = dao.GetMongoConnect().NewBackgroundContext()
+		ctx, _ = dao.GetMongoConnect().NewContext()
 	}
 	var finalTarget = target
 	err := dao.GetMongoConnect().GetMongoClient().UseSession(ctx, func(sctx mongo2.SessionContext) error {
@@ -288,8 +285,8 @@ func (dao *MongodbDaoMoMapping) doAllocate(ctx context.Context, appId string, ma
 				}
 			} else {
 				objsToMap = append(objsToMap, &BoMapping{
-					Namespace: ns,
-					From:      obj,
+					Namespace: normalizeNamespace(ns),
+					From:      normalizeMappingObject(ns, obj),
 					AppId:     appId,
 				})
 			}
