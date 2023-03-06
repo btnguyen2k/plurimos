@@ -11,7 +11,7 @@ require (
 	github.com/golang/protobuf v1.3.2
 	github.com/labstack/echo/v4 v4.1.10
 	github.com/lib/pq v1.2.0
-	github.com/pkg/errors v0.8.1
-	go.mongodb.org/mongo-driver v1.1.2
+	github.com/pkg/errors v0.9.1
+	go.mongodb.org/mongo-driver v1.5.1
 	google.golang.org/grpc v1.23.1
 )
